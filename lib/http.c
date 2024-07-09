@@ -172,6 +172,7 @@ void *__http_server_listen_threader__(void *vp_arg)
 
     data.onRequest(out, data.client_socket_des);
 
+    // why can't I free this! bug
     // free(out.data);
     // free(out.header.raw);
     // free(out.method);
@@ -193,7 +194,7 @@ void *__http_server_listen_threader__(void *vp_arg)
 void http_server_listen(server_t server_socket_des, reqfn_t onRequest)
 {
     // Start listening
-    listen(server_socket_des, 30);
+    listen(server_socket_des, 100);
     printf("Listening...\n");
     fflush(stdout);
 
@@ -204,6 +205,9 @@ void http_server_listen(server_t server_socket_des, reqfn_t onRequest)
     char getP[1024];
 
     pthread_t tid;
+
+    int fbuff;
+
     while (1)
     {
         printf("Waiting...\n");
@@ -211,27 +215,32 @@ void http_server_listen(server_t server_socket_des, reqfn_t onRequest)
 
         // Accept any incoming reuquest
         // this is causing the issue some socket is closed alr?
-        client_socket_des = accept(server_socket_des, (struct sockaddr *)&client_socket, &client_socket_len);
-        if (client_socket_des != -1)
+        if (read(server_socket_des, &fbuff, 1) != 0)
         {
-            printf("req\n");
-            fflush(stdout);
-            __http_threader_args__ args = {
-                .client_socket_des = client_socket_des,
-                .getP = getP,
-                .onRequest = onRequest,
-            };
-
-            // Process the request and serve data on a seperate thread
-            printf("Creating thread\n");
-            if (pthread_create(&tid, NULL, __http_server_listen_threader__, (void *)(&args)) != 0)
+            printf("Attempting accept %i\n", server_socket_des); fflush(stdout);
+            client_socket_des = accept(server_socket_des, (struct sockaddr *)&client_socket, &client_socket_len);
+            printf("Got %i\n", client_socket_des); fflush(stdout);
+            if (client_socket_des != -1)
             {
-                printf("Error! Cannot create thread");
+                printf("req\n");
+                fflush(stdout);
+                __http_threader_args__ args = {
+                    .client_socket_des = client_socket_des,
+                    .getP = getP,
+                    .onRequest = onRequest,
+                };
+
+                // Process the request and serve data on a seperate thread
+                printf("Creating thread\n");
+                if (pthread_create(&tid, NULL, __http_server_listen_threader__, (void *)(&args)) != 0)
+                {
+                    printf("Error! Cannot create thread");
+                }
             }
-        }
-        else
-        {
-            printf("Socket Accept Fail... Continuing");
+            else
+            {
+                printf("Socket Accept Fail... Continuing");
+            }
         }
     }
 }
