@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test</title>
+</head>
+<body>
+    <h1> Test Website </h1>
+    <button onclick="btnclk()"><h3>External JS button</h3></button>
+    <h4>Image loaded using static serving: </h4>
+    <!-- 
+        Note how each resource has the directory rooted in the loction of the main binary.
+        Like how "script.js" has "site/..." before it since the main binary is not in the folder
+    -->
+    <img src="site/dylan.jpg" alt="Unable to show image">
+    <script src="site/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+curl sqnewton.com/images/$1 -o $1
