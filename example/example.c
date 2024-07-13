@@ -1,4 +1,4 @@
-#include "../lib/http.c"
+#include "../lib/http.h"
 
 void request(request_t request, response_t response)
 {
@@ -34,6 +34,6 @@ int main()
     const char * IP = "192.168.0.92";
     
     server_t website = http_server_create(IP, 8080);
-    printf("Initiatkked:\n"); fflush(stdout);
+    printf("Init:\n"); fflush(stdout);
     http_server_listen(website, request);
 }

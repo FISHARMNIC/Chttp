@@ -1,72 +1,4 @@
-/*
-https://www.geeksforgeeks.org/socket-programming-cc/
-https://levelup.gitconnected.com/building-the-web-sockets-and-servers-for-dummies-886d1595a4f8
-https://www.gnu.org/software/libc/manual/html_node/Sockets.html
-https://pubs.opengroup.org/onlinepubs/009604499/functions/socket.html
-https://pubs.opengroup.org/onlinepubs/009604499/basedefs/sys/socket.h.html
-
-BEST:
-https://beej.us/guide/bgnet/html/#structs
-https://www.gta.ufrj.br/ensino/eel878/sockets/index.html
-https://www3.ntu.edu.sg/home/ehchua/programming/webprogramming/http_basics.html
-*/
-
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include <math.h>
-#include <pthread.h>
-#include <assert.h>
-#include <unistd.h>
-#include <ctype.h>
-
-#define http_url_none(url) strlen(url) == 0
-#define HTTP_SERVE_ERR -1
-#define HTTP_MAX_HEADERS 1024
-
-typedef int server_t;
-typedef int response_t;
-
-/// @brief Structure containing header map
-/// @param raw    (char *) Original un-formatted header string
-/// @param keys   (char **[]) Pointer to string array of keys
-/// @param values (char **[]) Pointer to string array of values
-typedef struct
-{
-    char *raw;
-    char **keys[HTTP_MAX_HEADERS];   // pointer to string array
-    char **values[HTTP_MAX_HEADERS]; // pointer to string array
-} http_header_map_t;
-
-/// @brief Structure containing request information
-/// @param method (char *) Type of request
-/// @param url    (char *) URL request (not including first slash)
-/// @param header (http_header_map_t) Header map type containing request header
-/// @param data   (char *) POST data or any other data after the headers(NULL if none)
-typedef struct
-{
-    char *method;
-    char *url;
-    http_header_map_t header;
-    char *data;
-} request_t;
-
-/// @brief Request function type
-typedef void (*reqfn_t)(request_t, response_t);
-
-/// @brief Structure containing client and listening information
-/// @deprecated Intended for internal use
-typedef struct
-{
-    server_t client_socket_des;
-    char *getP;
-    void (*onRequest)(request_t, response_t);
-} __http_threader_args__;
-
-// see documentation at declaration
-http_header_map_t http_headers_format(char *string);
+#include "http.h"
 
 /// @brief Create a server
 /// @param ipAddr String containing the host IP address
@@ -96,6 +28,9 @@ server_t http_server_create(const char *ipAddr, uint16_t port)
 
     // Bind the socket to our port
     bind(server_socket_des, (struct sockaddr *)&socketInternet, sizeof(socketInternet));
+
+    // Ignore SIGPIPE errors
+    signal(SIGPIPE, SIG_IGN);
 
     // Return the socket
     return (server_t)server_socket_des;
@@ -172,11 +107,13 @@ void *__http_server_listen_threader__(void *vp_arg)
 
     data.onRequest(out, data.client_socket_des);
 
-    // why can't I free this! bug
-    // free(out.data);
-    // free(out.header.raw);
-    // free(out.method);
-    // free(out.url);
+    free(out.data);
+    // TODO: fix, leak here
+    //http_headers_free(out.header);
+    free(out.header.raw);
+    free(out.method);
+    free(out.url);
+
 
     // Close the client
     printf("Closing\n");
@@ -253,6 +190,7 @@ void http_server_listen(server_t server_socket_des, reqfn_t onRequest)
 void http_serve(int socket, char *data, int len, char *headers)
 {
     // Mandatory header information
+    // freed 
     char *ostring = malloc(len + 300);
 
     char *headerST = "HTTP/1.1 200 OK\nAccept-Ranges: bytes\nContent-Length: ";
@@ -275,41 +213,9 @@ void http_serve(int socket, char *data, int len, char *headers)
     memcpy(zero, data, len);
     // printf("\n\n\n\%s\n\n\n", ostring);
     //  Send the output data throught the socket
-    send(socket, ostring, olen + len, 0);
+    send_assert(socket, ostring, olen + len, 0);
 
     free(ostring);
-}
-
-/// @brief Serve a 404 error
-/// @param socket Socket descriptor
-static inline void http_serve_404(int socket)
-{
-    send(socket, "HTTP/1.0 404 Not Found\nContent-Type: text/html\n\n<h1>Error 404</h1><p>Not Found</p>", 82, 0);
-}
-
-/// @brief Serve a 403 error
-/// @param socket Socket descriptor
-static inline void http_serve_403(int socket)
-{
-    send(socket, "HTTP/1.0 403 Forbidden\nContent-Type: text/html\n\n<h1>Error 403</h1></p>Access Forbidden</p>", 90, 0);
-}
-
-/// @brief Serve data without the http protocol required headers
-/// @param socket Socket descriptor
-/// @param data Data buffer
-/// @param length Data buffer length
-static inline void http_serve_raw(int socket, const char *data, int length)
-{
-    send(socket, data, length, 0);
-}
-
-/// @brief Serve a string of data, like http_serve but without specifying length
-/// @param socket Socket descriptor
-/// @param data Data buffer
-/// @param headers Response headers, seperated with new-line. Do not leave trailing newline!
-static inline void http_serve_string(int socket, char *data, char *headers)
-{
-    http_serve(socket, data, strlen(data), headers);
 }
 
 /// @brief Serve a file.
@@ -337,6 +243,7 @@ int http_serve_static(int socket, char *filename, char *headers)
     length = ftell(fp);
     fseek(fp, 0, SEEK_SET);
 
+    // freed
     buffer = (char *)malloc(length + 1);
     if (buffer)
     {
@@ -405,9 +312,10 @@ http_header_map_t http_headers_format(char *string)
     char build[buildSize];
     char *buildP = build;
     char *des;
+    char *ostring = string;
 
-    char *map_keys[HTTP_MAX_HEADERS];
-    char *map_values[HTTP_MAX_HEADERS];
+    static char *map_keys[HTTP_MAX_HEADERS];
+    static char *map_values[HTTP_MAX_HEADERS];
 
     memset(build, 0, buildSize);
     while (destIndex < HTTP_MAX_HEADERS)
@@ -421,6 +329,7 @@ http_header_map_t http_headers_format(char *string)
             des = (char *)malloc(buildSize);
             strcpy(des, build);
             map_values[destIndex++] = des;
+            map_values[destIndex] = 0;
             // exit if finished
             if (*string == 0)
                 goto ret;
@@ -433,7 +342,7 @@ http_header_map_t http_headers_format(char *string)
 
             des = (char *)malloc(buildSize);
             strcpy(des, build);
-            map_keys[destIndex] = des;
+            map_keys[destIndex++] = des;
         }
         else
         {
@@ -445,10 +354,15 @@ http_header_map_t http_headers_format(char *string)
     fflush(stdout);
     exit(1);
 ret:
+
+    // TODO copy map_keys and map_values to dyn alloc arr 
+
+    map_keys[destIndex] = 0;
+    map_values[destIndex] = 0;
     return (http_header_map_t){
         .keys = map_keys,
         .values = map_values,
-        .raw = string,
+        .raw = ostring,
     };
 }
 
@@ -456,8 +370,9 @@ ret:
 /// @param hmap Map
 /// @param cmp Header to search
 /// @return Header's value, NULL if not found
-char *http_headers_value(http_header_map_t hmap, char *cmp)
+char *http_headers_value(http_header_map_t* hmap_, char *cmp)
 {
+    http_header_map_t hmap = *hmap_;   
     for (int i = 0; i < HTTP_MAX_HEADERS; i++)
     {
         if (strcmp(*hmap.keys[i], cmp) == 0)
@@ -466,4 +381,21 @@ char *http_headers_value(http_header_map_t hmap, char *cmp)
         }
     }
     return NULL;
+}
+
+int http_headers_free(http_header_map_t* hmap_)
+{
+    http_header_map_t hmap = *hmap_;   
+    for (int i = 0; i < HTTP_MAX_HEADERS; i++)
+    {
+        if (hmap.values[i] == 0)
+        {
+            return 0;
+        }
+        free(hmap.keys[i]);
+        free(hmap.values[i]);
+        hmap.keys[i] = 0;
+        hmap.values[i] = 0;
+    }
+    return 0;
 }

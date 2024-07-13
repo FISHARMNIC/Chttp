@@ -1,4 +1,4 @@
-#include "../lib/http.c"
+#include "../lib/http.h"
 
 void request(request_t request, response_t response)
 {

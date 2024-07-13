@@ -1,5 +1,5 @@
 rm example/main.out
-clang -O0 example/example.c -o example/main.out -g
+clang example/example.c lib/main.c -o example/main.out -g
 if [ $? ]; then
 cd example 
 ./main.out
